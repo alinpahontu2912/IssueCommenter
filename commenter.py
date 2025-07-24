@@ -19,7 +19,7 @@ REPO_NAME = "TorchSharp"
 GITHUB_API_BASE = "https://api.github.com"
 
 # GitHub Copilot Enterprise configuration
-openai.api_key = GITHUB_TOKEN
+openai.api_key = os.getenv("AI_TOKEN")
 openai.api_base = "https://models.github.ai/inference"
 openai.api_type = "open_ai"
 

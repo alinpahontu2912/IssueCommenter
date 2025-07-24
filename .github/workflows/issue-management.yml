@@ -49,6 +49,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         DAYS_THRESHOLD: ${{ inputs.days_threshold }}
+        AI_TOKEN: ${{ secrets.AI_TOKEN }}
       run: |
         python commenter.py
     
