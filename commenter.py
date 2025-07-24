@@ -121,24 +121,24 @@ def generate_personalized_comment(issue_title, issue_body, comments, issue_creat
         comments_text = "\n".join([f"Comment: {comment['body'][:200]}..." for comment in recent_comments])
     
     prompt = f"""
-        You are a maintainer of the TorchSharp repository. You need to write a friendly, personalized comment for an old issue that hasn't been updated in over 2 years.
+You are a maintainer of the TorchSharp repository. You need to write a friendly, personalized comment for an old issue that hasn't been updated in over 2 years.
 
-        Issue Title: {issue_title}
-        Issue Description: {issue_body[:500]}...
-        Recent Comments: {comments_text}
-        Issue Creator: @{issue_creator}
+Issue Title: {issue_title}
+Issue Description: {issue_body}
+Recent Comments: {comments_text}
+Issue Creator: @{issue_creator}
 
-        Write a polite, professional comment that:
-        1. Starts by tagging the issue creator (@{issue_creator})
-        2. Acknowledges the issue and thanks the user for reporting it
-        3. References specific details from the issue title or description
-        4. Asks if the issue is still relevant or if it has been resolved
-        5. Mentions that TorchSharp has evolved significantly
-        6. Asks for updated information if the issue is still valid
-        7. Keep it concise (under 150 words)
+Write a polite, professional comment that:
+1. Starts by tagging the issue creator (@{issue_creator})
+2. Acknowledges the issue and thanks the user for reporting it
+3. References specific details from the issue title or description
+4. Asks if the issue is still relevant or if it has been resolved
+5. Mentions that TorchSharp has evolved significantly
+6. Asks for updated information if the issue is still valid
+7. Keep it concise (under 150 words)
 
-        Write only the comment text, no additional formatting or explanations.
-        """
+Write only the comment text, no additional formatting or explanations.
+"""
     try:
         response = openai.ChatCompletion.create(
             model=model,
