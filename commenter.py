@@ -12,7 +12,8 @@ if not GITHUB_TOKEN:
     raise ValueError("GITHUB_TOKEN environment variable is required")
 
 # Days threshold configuration (default: 2 years = 730 days)
-DAYS_THRESHOLD = int(os.getenv("DAYS_THRESHOLD", "730"))
+raw_days = os.getenv("DAYS_THRESHOLD", "").strip()
+DAYS_THRESHOLD = int(raw_days) if raw_days else 730
 
 REPO_OWNER = "dotnet"
 REPO_NAME = "TorchSharp"
