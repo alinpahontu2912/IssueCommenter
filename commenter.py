@@ -15,9 +15,12 @@ if not GITHUB_TOKEN:
 raw_days = os.getenv("DAYS_THRESHOLD", "").strip()
 DAYS_THRESHOLD = int(raw_days) if raw_days else 730
 
-REPO_OWNER = "dotnet"
-REPO_NAME = "TorchSharp"
+REPO_OWNER = os.getenv("REPO_OWNER", "dotnet")
+REPO_NAME = os.getenv("REPO_NAME", "TorchSharp")
 GITHUB_API_BASE = "https://api.github.com"
+
+# Hidden marker to identify bot comments for the closer script
+BOT_COMMENT_MARKER = "<!-- issue-commenter-bot -->"
 
 # GitHub Copilot Enterprise configuration
 openai.api_key = GITHUB_TOKEN
@@ -52,7 +55,7 @@ def setup_logging():
 
 def get_old_issues(days_threshold=DAYS_THRESHOLD):
     """Fetch issues that haven't been updated in more than the specified number of days."""
-    cutoff_date = datetime.now() - timedelta(days=days_threshold)
+    cutoff_date = datetime.utcnow() - timedelta(days=days_threshold)
     cutoff_str = cutoff_date.strftime("%Y-%m-%dT%H:%M:%SZ")
     
     headers = {
@@ -112,31 +115,64 @@ def get_issue_comments(issue_number):
         return response.json()
     return []
 
-def generate_personalized_comment(issue_title, issue_body, comments, issue_creator):
+def get_issue_metadata(issue):
+    """Extract labels and linked PR references from an issue."""
+    labels = [label["name"] for label in issue.get("labels", [])]
+
+    # Check for linked PRs via timeline API
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    url = f"{GITHUB_API_BASE}/repos/{REPO_OWNER}/{REPO_NAME}/issues/{issue['number']}/timeline"
+    response = requests.get(url, headers=headers)
+
+    linked_prs = []
+    if response.status_code == 200:
+        for event in response.json():
+            if event.get("event") == "cross-referenced":
+                source_issue = event.get("source", {}).get("issue", {})
+                if "pull_request" in source_issue:
+                    pr_title = source_issue.get("title", "")
+                    pr_number = source_issue.get("number", "")
+                    linked_prs.append(f"#{pr_number} ({pr_title})")
+
+    return labels, linked_prs
+
+def generate_personalized_comment(issue_title, issue_body, comments, issue_creator, labels, linked_prs):
     """Generate a personalized comment using GitHub Copilot Enterprise."""
     
-    # Prepare context from issue and comments
+    # Prepare context from ALL issue comments
     comments_text = ""
     if comments:
-        recent_comments = comments[-3:]  # Last 3 comments for context
-        comments_text = "\n".join([f"Comment: {comment['body'][:200]}..." for comment in recent_comments])
+        comments_text = "\n".join(
+            [f"Comment by @{c['user']['login']}: {c['body'][:300]}" for c in comments]
+        )
+    
+    labels_text = ", ".join(labels) if labels else "None"
+    prs_text = ", ".join(linked_prs) if linked_prs else "None"
     
     prompt = f"""
-You are a maintainer of the TorchSharp repository. You need to write a friendly, personalized comment for an old issue that hasn't been updated in over 2 years.
+You are a maintainer of the {REPO_NAME} repository. You need to write a friendly, personalized comment for an old issue that hasn't been updated in over 2 years.
 
 Issue Title: {issue_title}
-Issue Description: {issue_body}
-Recent Comments: {comments_text}
+Issue Description: {issue_body[:500] if issue_body else "No description provided."}
+Labels: {labels_text}
+Linked Pull Requests: {prs_text}
+Discussion History:
+{comments_text if comments_text else "No comments yet."}
 Issue Creator: @{issue_creator}
 
 Write a polite, professional comment that:
 1. Starts by tagging the issue creator (@{issue_creator})
 2. Acknowledges the issue and thanks the user for reporting it
-3. References specific details from the issue title or description
-4. Asks if the issue is still relevant or if it has been resolved
-5. Mentions that TorchSharp has evolved significantly
-6. Asks for updated information if the issue is still valid
-7. Keep it concise (under 150 words)
+3. References specific details from the issue title, description, or discussion history
+4. If there are linked PRs, mention them and ask if they addressed the issue
+5. If there are labels, acknowledge the categorization
+6. Asks if the issue is still relevant or if it has been resolved
+7. Mentions that {REPO_NAME} has evolved significantly
+8. Asks for updated information if the issue is still valid
+9. Keep it concise (under 150 words)
 
 Write only the comment text, no additional formatting or explanations.
 """
@@ -163,7 +199,9 @@ def post_comment_to_issue(issue_number, comment_text, max_retries=3):
     }
     
     url = f"{GITHUB_API_BASE}/repos/{REPO_OWNER}/{REPO_NAME}/issues/{issue_number}/comments"
-    data = {"body": comment_text}
+    # Prepend hidden marker so the closer script can identify bot comments
+    marked_comment = f"{BOT_COMMENT_MARKER}\n{comment_text}"
+    data = {"body": marked_comment}
     
     for attempt in range(max_retries):
         response = requests.post(url, headers=headers, json=data)
@@ -212,11 +250,18 @@ def main():
         
         logging.info(f"Processing issue #{issue_number}: {issue_title[:50]}...")
         
-        # Get issue comments
+        # Get issue comments and metadata
         comments = get_issue_comments(issue_number)
         
+        # Skip if we already left a bot comment on this issue
+        if any(BOT_COMMENT_MARKER in c["body"] for c in comments):
+            logging.info(f"Issue #{issue_number}: Already has bot comment, skipping")
+            continue
+        
+        labels, linked_prs = get_issue_metadata(issue)
+        
         # Generate personalized comment
-        comment_text = generate_personalized_comment(issue_title, issue_body, comments, issue_creator)
+        comment_text = generate_personalized_comment(issue_title, issue_body, comments, issue_creator, labels, linked_prs)
         
         if comment_text:
             logging.info(f"Issue #{issue_number}: Generated comment preview: {comment_text[:100]}...")

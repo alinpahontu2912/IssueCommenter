@@ -7,15 +7,33 @@ on:
   # Allow manual triggering for testing
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'Which script to run'
+        required: true
+        type: choice
+        options:
+          - both
+          - comment
+          - close
+        default: 'both'
       days_threshold:
-        description: 'Number of days to look back for old issues - default is 730 (2 years)'
+        description: 'Days to look back for old issues (commenter, default 730)'
         required: false
         default: '730'
         type: string
+      close_threshold:
+        description: 'Days to wait before closing after bot comment (closer, default 14)'
+        required: false
+        default: '14'
+        type: string
 
 jobs:
-  manage-issues:
+  comment-issues:
     runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event.inputs.mode == 'both' ||
+      github.event.inputs.mode == 'comment'
     
     permissions:
       issues: write
@@ -34,28 +52,56 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install openai==0.28.0 requests
-
-    # run every 2 weeks
-    - name: Check if this is an even ISO week
-      run: |
-        WEEK_NUM=$(date -u +%V)
-        echo "Week number: $WEEK_NUM"
-        if [ $((10#$WEEK_NUM % 2)) -ne 0 ]; then
-          echo "This is not an even week. Exiting."
-          exit 0
-        fi
-  
-    - name: Run issue management script
+    
+    - name: Run commenter script
       env:
         GITHUB_TOKEN: ${{ secrets.AI_TOKEN }}
-        DAYS_THRESHOLD: ${{ inputs.days_threshold }}
-      run: |
-        python commenter.py
+        DAYS_THRESHOLD: ${{ inputs.days_threshold || '730' }}
+      run: python commenter.py
     
     - name: Upload logs as artifacts
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: issue-management-logs-${{ github.run_number }}
+        name: commenter-logs-${{ github.run_number }}
+        path: logs/
+        retention-days: 30
+
+  close-issues:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event.inputs.mode == 'both' ||
+      github.event.inputs.mode == 'close'
+    
+    permissions:
+      issues: write
+      contents: read
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install openai==0.28.0 requests
+    
+    - name: Run closer script
+      env:
+        GITHUB_TOKEN: ${{ secrets.AI_TOKEN }}
+        CLOSE_THRESHOLD_DAYS: ${{ inputs.close_threshold || '14' }}
+      run: python closer.py
+    
+    - name: Upload logs as artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: closer-logs-${{ github.run_number }}
         path: logs/
         retention-days: 30
